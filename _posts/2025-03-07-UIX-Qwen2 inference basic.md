@@ -1,6 +1,41 @@
 `Qwen2-VL` 모델의 토크나이저 이슈를 해결하는 완전한 코드입니다.
 
 ```python
+# uix_hello_world.py
+from transformers import AutoModelForCausalLM, AutoProcessor
+from PIL import Image
+import torch
+
+# 1. 모델 및 프로세서 로드
+model = AutoModelForCausalLM.from_pretrained(
+    "neulab/UIX-Qwen2",
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+    trust_remote_code=True
+)
+processor = AutoProcessor.from_pretrained("neulab/UIX-Qwen2")
+
+# 2. 입력 데이터 준비
+image = Image.open("sample_image.jpg")  # 이미지 경로
+prompt = "<image>\n이 이미지에 어떤 UI 요소들이 있나요?"  # 질문
+
+# 3. 입력 처리
+inputs = processor(
+    text=prompt,
+    images=image,
+    return_tensors="pt"
+).to(model.device)
+
+# 4. 추론 실행
+outputs = model.generate(**inputs, max_new_tokens=256)
+
+# 5. 결과 출력
+response = processor.decode(outputs[0], skip_special_tokens=True)
+print(">> 질문:", prompt.split("\n")[1])
+print(">> 응답:", response.split("답변:")[-1].strip())
+```
+
+```python
 from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoImageProcessor
 from PIL import Image
 
