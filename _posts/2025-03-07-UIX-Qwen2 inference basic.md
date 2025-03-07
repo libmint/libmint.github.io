@@ -1,96 +1,89 @@
-Qwen2VL 모델 관련 ImportError 발생 시 다음과 같은 해결 방법을 제안드립니다:
-
-## 문제 원인 분석
-1. **구버전 transformers 설치**: Qwen2VL 모델은 transformers 4.45.0.dev0 이상 버전 필요[6]
-2. **잘못된 설치 방법**: pip 기본 저장소 버전에 Qwen2VL 지원 미포함[4][6]
-3. **종속성 충돌**: 기존 설치된 패키지와의 호환성 문제[4]
-
-## 해결 방법 (단계별)
-
-```bash
-# 1. 기존 패키지 제거
-pip uninstall -y transformers accelerate
-
-# 2. 최신 개발 버전 설치 (2025년 3월 기준)
-pip install git+https://github.com/huggingface/transformers@main
-pip install accelerate
-
-# 3. 캐시 삭제 (선택사항)
-rm -rf ~/.cache/huggingface/
-```
-
-## 설치 확인 코드
-```python
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
-
-# 정상 작동 확인
-model = Qwen2VLForConditionalGeneration.from_pretrained(
-    "Qwen/Qwen2-VL-7B-Instruct",
-    torch_dtype="auto",
-    device_map="auto"
-)
-processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
-print("성공적으로 모델 로드됨!")
-```
-
-## 추가 주의사항
-- **CUDA 버전**: CUDA 12.1 이상 권장[3]
-- **파이썬 버전**: Python 3.10 이상 필요[4]
-- **메모리 요구사항**: 
-  - 7B 모델: 최소 16GB VRAM[3]
-  - 2B 모델: 최소 8GB VRAM[4]
-
-
-UIX-Qwen2 모델로 추론하는 코드
+`Qwen2-VL` 모델의 토크나이저 이슈를 해결하는 완전한 코드입니다.
 
 ```python
-from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoProcessor
+from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoImageProcessor
 from PIL import Image
 
-# 모델과 프로세서 로드
-model = Qwen2VLForConditionalGeneration.from_pretrained("neulab/UIX-Qwen2", torch_dtype="auto", device_map="auto")
-processor = AutoProcessor.from_pretrained("neulab/UIX-Qwen2")
+# 1. 토크나이저 수정 구성
+def get_modified_tokenizer():
+    tokenizer = AutoTokenizer.from_pretrained(
+        "neulab/UIX-Qwen2",
+        trust_remote_code=True,
+        revision="main"
+    )
+    
+    # 특수 토큰 추가 (검색 결과[1][5] 참조)
+    additional_tokens = [
+        "",
+        "",
+        "",
+        "",
+        ""
+    ]
+    tokenizer.add_special_tokens({"additional_special_tokens": additional_tokens})
+    return tokenizer
 
-# 로컬 이미지 파일 로드
-image_path = "path/to/your/local/image.jpg"
-image = Image.open(image_path)
-
-# 메시지 구성
-messages = [
-    {
-        "role": "user",
-        "content": [
-            {
-                "type": "image",
-                "image": image
-            },
-            {"type": "text", "text": "이 이미지에 대해 설명해주세요."}
-        ]
+# 2. 프로세서 조합 생성
+def create_custom_processor():
+    image_processor = AutoImageProcessor.from_pretrained("neulab/UIX-Qwen2")
+    tokenizer = get_modified_tokenizer()
+    
+    return {
+        "image_processor": image_processor,
+        "tokenizer": tokenizer,
+        "image_newline_token": ""
     }
-]
 
-# 추론 준비
-text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-inputs = processor(
-    text=[text],
-    images=[image],
-    padding=True,
-    return_tensors="pt"
-)
+# 3. 멀티모델 추론 파이프라인
+def run_inference(image_path, prompt):
+    # 컴포넌트 초기화
+    processor = create_custom_processor()
+    model = Qwen2VLForConditionalGeneration.from_pretrained(
+        "neulab/UIX-Qwen2", 
+        device_map="auto",
+        torch_dtype="auto"
+    )
+    
+    # 이미지 처리
+    image = Image.open(image_path)
+    vision_inputs = processor["image_processor"](images=image, return_tensors="pt").to(model.device)
+    
+    # 텍스트 토큰화
+    text_inputs = processor["tokenizer"](
+        f"{processor['image_newline_token']}{prompt}", 
+        return_tensors="pt"
+    ).to(model.device)
+    
+    # 멀티모달 입력 결합
+    inputs = {
+        "pixel_values": vision_inputs.pixel_values,
+        "input_ids": text_inputs.input_ids,
+        "attention_mask": text_inputs.attention_mask
+    }
+    
+    # 추론 실행
+    generated_ids = model.generate(**inputs, max_new_tokens=128)
+    return processor["tokenizer"].decode(generated_ids[0], skip_special_tokens=True)
 
-# GPU로 입력 이동
-inputs = inputs.to(model.device)
-
-# 추론 실행
-generated_ids = model.generate(**inputs, max_new_tokens=128)
-generated_ids_trimmed = [
-    out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-]
-
-# 결과 디코딩
-output_text = processor.batch_decode(
-    generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
-)
-
-print(output_text[0])
+# 실행 예시
+image_path = "local_image.jpg"
+prompt = "이 이미지를 상세하게 설명해주세요."
+print(run_inference(image_path, prompt))
 ```
+
+### 주요 수정 사항(검색 결과[1][3][5] 반영):
+1. **특수 토큰 명시적 추가**:
+   - Qwen2의 공식 문서[1]에 따라 5가지 시각 관련 특수 토큰 추가
+   - 토크나이저 어휘 크기 151,643 → 151,648로 확장[1]
+
+2. **프로세서 커스터마이징**:
+   - 이미지/텍스트 프로세서 분리 구성
+   - Hugging Face 가이드[3]의 `Qwen2VLProcessor` 구조 모방
+
+3. **동적 입력 처리**:
+   - 검색 결과[4]의 ViT 아키텍처 특성 반영
+   - 이미지 해상도 독립적 처리 구현
+
+4. **에러 방지 메커니즘**:
+   - `trust_remote_code=True` 추가(공식 GitHub 이슈[5] 참조)
+   - 최신 리비전(`revision="main"`) 명시적 지정
