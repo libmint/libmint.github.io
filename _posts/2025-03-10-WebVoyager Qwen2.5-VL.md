@@ -163,3 +163,68 @@ print(output_text)
 
 이 코드는 ``를 추가 토큰으로 등록하고, 데이터 콜레이터에서 이를 처리하여 모델에 입력으로 제공합니다. 이미지 입력이 있는 경우, 텍스트에 `` 토큰을 추가하여 모델이 이를 인식할 수 있도록 합니다.
 
+`MyDataCollator` 클래스를 `Qwen2.5-VL` 모델에서 사용할 수 있도록 수정하려면, 모델의 특성과 입력 형식을 고려하여 클래스를 조정해야 합니다. `Qwen2.5-VL` 모델은 멀티모달 입력을 처리하도록 설계되어 있어, 텍스트와 이미지 입력을 함께 처리해야 합니다.
+
+### 수정된 코드
+
+```python
+import re
+from transformers import AutoProcessor
+
+class MyDataCollator:
+    def __init__(self, processor):
+        self.processor = processor
+        
+        # 추가 토큰 등록
+        special_tokens_dict = {"additional_special_tokens": [""]}
+        num_added_toks = processor.tokenizer.add_special_tokens(special_tokens_dict)
+        
+        # 토큰 ID 얻기
+        self.image_token_id = processor.tokenizer.additional_special_tokens_ids[
+            processor.tokenizer.additional_special_tokens.index("")
+        ]
+
+    def __call__(self, example_list):
+        texts = []
+        images = []
+        for example in example_list:
+            image_list = example["images"]
+            
+            messages = []
+            conversations = example["conversations"]
+            for conv in conversations:
+                item = {}
+                item["role"] = conv["role"]
+                raw_content = conv["content"]
+                raw_content_split = re.split(r'()', raw_content)
+                content_list = [{"type": "image"} if seg == ""
+                            else {"type": "text", "text": seg} for seg in raw_content_split]
+                item["content"] = content_list
+                messages.append(item)
+        
+
+            text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            texts.append(text.strip())
+            images.append(image_list)
+
+        batch = self.processor(
+            text=texts,
+            images=images,
+            padding=True,
+            return_tensors="pt"
+        )
+
+        return batch
+```
+
+이 코드는 `Qwen2.5-VL` 모델에서 사용할 수 있도록 수정되었습니다. 텍스트와 이미지 입력을 함께 처리하며, `` 토큰을 추가하여 모델이 이를 인식할 수 있도록 합니다.
+
+### 추가 설명
+- **추가 토큰 등록**: ``를 추가 토큰으로 등록하여 모델이 이를 인식할 수 있도록 합니다.
+- **입력 데이터 처리**: 텍스트와 이미지 입력을 함께 처리하여 모델에 입력으로 제공합니다.
+- **`tokenize=False`**: `apply_chat_template`에서 `tokenize=False`로 설정하여 텍스트를 토큰화하지 않고 처리합니다. 이는 모델이 이미지를 처리하는 방식과 일관성을 유지하기 위함입니다.
+
+이 코드는 `Qwen2.5-VL` 모델의 특성을 고려하여 수정되었으며, 멀티모달 입력을 처리하는 데 적합합니다.
+
+---
+
