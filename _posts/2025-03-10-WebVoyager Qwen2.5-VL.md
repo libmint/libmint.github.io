@@ -73,6 +73,11 @@ print(output_text)
 - **라이브러리 설치**: `qwen-vl-utils` 라이브러리를 설치해야 합니다. 이는 `pip install qwen-vl-utils[decord]==0.0.8` 명령어로 설치할 수 있습니다[2].
 - **환경 설정**: `transformers` 라이브러리를 최신 버전으로 설치해야 합니다. 이는 `pip install git+https://github.com/huggingface/transformers accelerate` 명령어로 설치할 수 있습니다[2].
 
+`MyDataCollator` 클래스를 수정하여 ``를 특수 토큰으로 처리하고, 이를 모델에 입력으로 제공하는 방법을 보여드리겠습니다. 이 과정에서는 ``를 추가 토큰으로 등록하고, 데이터 콜레이터에서 이를 처리하는 방법을 설명합니다.
+
+### 수정된 코드
+
+```python
 from transformers import AutoProcessor, AutoModelForCausalLM
 from transformers.data.data_collator import DataCollatorWithPadding
 import torch
@@ -89,7 +94,7 @@ model = AutoModelForCausalLM.from_pretrained(
 processor = AutoProcessor.from_pretrained(model_name)
 
 # 추가 토큰 등록
-special_tokens_dict = {"additional_special_tokens": ["<image>"]}
+special_tokens_dict = {"additional_special_tokens": [""]}
 num_added_toks = processor.tokenizer.add_special_tokens(special_tokens_dict)
 model.resize_token_embeddings(len(processor.tokenizer))
 
@@ -106,9 +111,9 @@ class MyDataCollator(DataCollatorWithPadding):
             text = feature["text"]
             image = feature.get("image", None)
             
-            # 텍스트에 <image> 토큰 추가
+            # 텍스트에  토큰 추가
             if image is not None:
-                text += " <image>"
+                text += " "
             
             texts.append(text)
             images.append(image)
@@ -154,4 +159,7 @@ output_text = processor.tokenizer.batch_decode(
 )
 
 print(output_text)
+```
+
+이 코드는 ``를 추가 토큰으로 등록하고, 데이터 콜레이터에서 이를 처리하여 모델에 입력으로 제공합니다. 이미지 입력이 있는 경우, 텍스트에 `` 토큰을 추가하여 모델이 이를 인식할 수 있도록 합니다.
 
