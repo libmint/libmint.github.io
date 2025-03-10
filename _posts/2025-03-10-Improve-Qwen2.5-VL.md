@@ -200,3 +200,72 @@ Flash Attention 2를 사용하려면 다음과 같이 설치하세요:
 ```bash
 pip install -U flash-attn --no-build-isolation
 ```
+
+```
+@app.post("/predict")
+def predict(example: InputData):
+    example = example.dict()
+
+    # 이미지 로드
+    image_list_bin = base64.b64decode(example["images"])
+    image_list_pil = pickle.loads(image_list_bin)
+    example["images"] = image_list_pil
+
+    # conversations 처리 및 messages 생성
+    messages = []
+    total_image_token_count = 0
+    for conv in example["conversations"]:
+        role = conv["role"]
+        raw_content = conv["content"]
+        segments = re.split(r'(<image>)', raw_content)
+        content_list = []
+        for seg in segments:
+            if seg == "<image>":
+                content_list.append({"type": "image"})
+            elif seg.strip():
+                content_list.append({"type": "text", "text": seg})
+        messages.append({"role": conv["role"], "content": content_list})
+
+    # <image> 토큰 개수 검증 (중요!)
+    num_image_tokens = sum(
+        sum(1 for c in msg["content"] if c["type"] == "image")
+        for msg in messages
+    )
+    if num_image_tokens != len(image_list_pil):
+        raise ValueError(f"Image features and image tokens do not match: tokens: {num_image_tokens}, features {len(image_list_pil)}")
+
+    # processor 입력 준비 (중요: tokenize=False 필수!)
+    text_input = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+    inputs = processor(
+        text=[text_input],
+        images=image_list_pil,
+        return_tensors="pt",
+        padding=True
+    ).to(args.device)
+
+    with torch.no_grad():
+        generated_ids = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            min_new_tokens=3,
+            eos_token_id=processor.tokenizer.eos_token_id,
+            do_sample=True,
+            temperature=1.2,
+        )
+
+    generated_text = processor.batch_decode(
+        generated_ids[:, inputs["input_ids"].size(1):],
+        skip_special_tokens=True
+    )[0]
+
+    input_token_count = inputs["input_ids"].size(1)
+    output_token_count = generated_ids.size(1) - input_token_count
+
+    return {
+        "text": generated_text,
+        "prompt_tokens": input_token_count,
+        "completion_tokens": output_token_count
+    }
+
+```
