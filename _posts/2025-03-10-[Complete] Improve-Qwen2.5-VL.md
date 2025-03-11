@@ -201,6 +201,7 @@ Flash Attention 2를 사용하려면 다음과 같이 설치하세요:
 pip install -U flash-attn --no-build-isolation
 ```
 
+## 이미지 토큰수 문제 해결 버전 
 ```
 @app.post("/predict")
 def predict(example: InputData):
@@ -267,5 +268,130 @@ def predict(example: InputData):
         "prompt_tokens": input_token_count,
         "completion_tokens": output_token_count
     }
+```
 
+## System Prompt 처리 방법
+```
+import os
+import re
+import json
+import torch
+import pickle
+import argparse
+from fastapi import FastAPI
+from pydantic import BaseModel
+import base64
+from PIL import Image
+from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+import uvicorn
+from fastapi.middleware.cors import CORSMiddleware
+
+# argparse 설정
+parser = argparse.ArgumentParser()
+parser.add_argument("--device", type=str, default="cuda:0")
+parser.add_argument("--model_name_or_path", type=str,
+                    default="Qwen/Qwen2.5-VL-7B-Instruct")
+parser.add_argument("--port", type=int, default=8080)
+args = parser.parse_args()
+print(args)
+
+print("Current loaded model:", args.model_name_or_path)
+
+# 프로세서 설정
+processor = AutoProcessor.from_pretrained(
+    args.model_name_or_path,
+    do_image_splitting=False
+)
+processor.image_processor.size['longest_edge'] = 980
+processor.image_processor.size['shortest_edge'] = 980
+
+class MyDataCollator:
+    def __init__(self, processor):
+        self.processor = processor
+
+    def __call__(self, example_list):
+        texts = []
+        images = []
+        for example in example_list:
+            image_list = example["images"]
+            messages = []
+
+            # system prompt 처리 부분 추가
+            if "system" in example and example["system"].strip():
+                messages.append({"role": "system", "content": [{"type": "text", "text": example["system"]}]})
+
+            conversations = example["conversations"]
+            for conv in conversations:
+                raw_content_split = re.split(r'(<image>)', conv["content"])
+                content_list = [{"type": "image"} if seg == "<image>"
+                                else {"type": "text", "text": seg} for seg in raw_content_split if seg.strip()]
+                messages.append({"role": conv["role"], "content": content_list})
+
+            text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            texts.append(text.strip())
+            images.append(image_list)
+
+        batch = processor(text=texts, images=images, return_tensors="pt", padding=True)
+
+        return batch
+
+# 모델 로딩
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+    args.model_name_or_path,
+    torch_dtype=torch.float16,
+).to(args.device)
+
+data_collator = MyDataCollator(processor)
+
+# InputData에 system 변수 추가
+class InputData(BaseModel):
+    id: str
+    conversations: list
+    images: str  # base64 encoded pickle of image list
+    system: str  # 추가된 부분 (시스템 프롬프트)
+
+class OutputPrediction(BaseModel):
+    generated_text: str
+
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/predict")
+def predict(example: InputData):
+    example_dict = example.dict()
+
+    image_list_bin = base64.b64decode(example_dict["images"])
+    image_list_pil = pickle.loads(image_list_bin)
+    example_dict["images"] = image_list_pil
+
+    batch = data_collator([example_dict])
+    batch = {k: v.to(args.device) for k, v in batch.items()}
+    
+    with torch.no_grad():
+        generated_ids = model.generate(**batch,
+                                       max_new_tokens=256,
+                                       min_new_tokens=3, 
+                                       eos_token_id=processor.tokenizer.eos_token_id,
+                                       do_sample=True,
+                                       temperature=1.2)
+        
+    generated_text = processor.batch_decode(generated_ids[:, batch["input_ids"].size(1):], skip_special_tokens=True)[0]
+
+    input_token_count = batch["input_ids"].size(1)
+    output_token_count = generated_ids.size(1) - input_token_count
+    
+    return {
+        "text": generated_text,
+        "prompt_tokens": input_token_count,
+        "completion_tokens": output_token_count
+    }
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
 ```
