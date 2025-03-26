@@ -49,6 +49,12 @@ for cmd in test_commands:
     print()
 ```
 
+## 개선
+```
+click_pattern = r"click\s*\(\s*(?:[\w_]+)\s*=\s*['\"]?\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*['\"]?\s*\)"
+match = re.search(click_pattern, command_str)
+```
+
 이 코드는 다음과 같은 작업을 수행합니다:
 
 1. 정규 표현식을 사용하여 "click(start_box='(123,123)')" 형태의 명령어를 파싱합니다.
