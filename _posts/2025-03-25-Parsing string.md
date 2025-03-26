@@ -53,6 +53,28 @@ for cmd in test_commands:
 ```
 click_pattern = r"click\s*\(\s*(?:[\w_]+)\s*=\s*['\"]?\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*['\"]?\s*\)"
 match = re.search(click_pattern, command_str)
+
+## 개선2
+```
+import re
+
+# Updated regex pattern to handle both parentheses () and square brackets []
+click_pattern = r"click\s*\(\s*(?:[\w_]+)\s*=\s*['\"]?\s*\(?\[?\s*(\d+)\s*,\s*(\d+)\s*\]?\)?\s*['\"]?\s*\)"
+
+# Example command strings
+command_str1 = "click(start_box=(123, 123))"
+command_str2 = "click(start_box='[123, 123]')"
+
+# Matching the patterns
+match1 = re.search(click_pattern, command_str1)
+match2 = re.search(click_pattern, command_str2)
+
+if match1:
+    print(f"Match 1: x={match1.group(1)}, y={match1.group(2)}")
+
+if match2:
+    print(f"Match 2: x={match2.group(1)}, y={match2.group(2)}")
+```
 ```
 
 이 코드는 다음과 같은 작업을 수행합니다:
