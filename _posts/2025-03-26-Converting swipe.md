@@ -14,9 +14,13 @@ def swipe(self, start_box=None, end_box=None):
         raise ValueError("start_box and end_box must be in the format '(x,y)' with integer values")
     
     # direction 계산
-    if start_x == end_x and start_y  end_y:
+    if start_x == end_x and start_y < end_y:
+        direction = "down"
+    elif start_x == end_x and start_y > end_y:
         direction = "up"
-    elif start_y == end_y and start_x  end_x:
+    elif start_y == end_y and start_x < end_x:
+        direction = "right"
+    elif start_y == end_y and start_x > end_x:
         direction = "left"
     else:
         raise ValueError("Invalid swipe direction: swipe must be strictly horizontal or vertical")
@@ -38,6 +42,7 @@ def swipe(self, start_box=None, end_box=None):
         }
     }
     time.sleep(1)
+
 ```
 
 ### 주요 변경 사항:
