@@ -53,6 +53,7 @@ for cmd in test_commands:
 ```
 click_pattern = r"click\s*\(\s*(?:[\w_]+)\s*=\s*['\"]?\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*['\"]?\s*\)"
 match = re.search(click_pattern, command_str)
+```
 
 ## 개선2
 ```
@@ -75,7 +76,7 @@ if match1:
 if match2:
     print(f"Match 2: x={match2.group(1)}, y={match2.group(2)}")
 ```
-```
+
 
 이 코드는 다음과 같은 작업을 수행합니다:
 
