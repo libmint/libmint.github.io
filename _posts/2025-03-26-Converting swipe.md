@@ -84,12 +84,12 @@ def swipe(self, start_box=None, end_box=None):
     # start_box와 end_box 형식 확인 및 좌표 변환
     def parse_coordinates(box):
         if isinstance(box, str):  # 문자열 처리
-            box = box.strip('()[]')  # () 또는 [] 제거
-            x, y = map(int, box.split(','))
+            box = box.strip('()[] ')  # () 또는 [] 제거 및 앞뒤 공백 제거
+            x, y = map(int, box.replace(' ', '').split(','))  # 공백 제거 후 좌표 파싱
         elif isinstance(box, list) and len(box) == 2:  # 리스트 처리
             x, y = map(int, box)
         else:
-            raise ValueError("Box must be in the format '(x,y)', '[x,y]', or [x, y] with integer values")
+            raise ValueError("Box must be in the format '(x,y)', '[x,y]', [x, y], or x,y with integer values")
         return x, y
 
     try:
@@ -127,4 +127,5 @@ def swipe(self, start_box=None, end_box=None):
         }
     }
     time.sleep(1)
+
 ```
