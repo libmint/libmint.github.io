@@ -84,6 +84,74 @@ tap(start_box='start_box "=" (123 , 345)')
 tap(start_box="start_box=(123 , 345)")
 ```
 
+### 개선
+```
+def tap(self, start_box=None):
+    # start_box가 반드시 필요함
+    if not start_box:
+        raise ValueError("start_box is required for tap")
+    
+    # 괄호 짝 확인 함수
+    def validate_brackets(box):
+        open_brackets = ['(', '[']
+        close_brackets = [')', ']']
+        stack = []
+        for char in box:
+            if char in open_brackets:
+                stack.append(char)
+            elif char in close_brackets:
+                if not stack:
+                    return False
+                last_open = stack.pop()
+                if open_brackets.index(last_open) != close_brackets.index(char):
+                    return False
+        return not stack
+
+    # start_box 형식 확인 및 좌표 변환
+    def parse_coordinates(box):
+        if isinstance(box, str):  # 문자열 처리
+            box = box.strip('()[] ')  # () 또는 [] 제거 및 앞뒤 공백 제거
+            box = box.replace('=', '').replace('"', '').replace("'", '')  # =, 따옴표 제거
+            
+            # 괄호 짝 검사
+            if not validate_brackets(box):
+                raise ValueError(f"Mismatched brackets in '{box}'")
+            
+            try:
+                x, y = map(float, box.replace(' ', '').split(','))  # 공백 제거 후 좌표 파싱
+            except ValueError:
+                raise ValueError(f"Invalid coordinates format in '{box}'")
+        elif isinstance(box, list) and len(box) == 2:  # 리스트 처리
+            try:
+                x, y = map(float, box)
+            except ValueError:
+                raise ValueError(f"Invalid list format in '{box}'")
+        else:
+            raise ValueError("Box must be in the format '(x,y)', '[x,y]', [x, y], or x,y with numeric values")
+        
+        # 좌표 값이 음수인 경우 예외 발생
+        if x < 0 or y < 0:
+            raise ValueError(f"Coordinates must be non-negative: x={x}, y={y}")
+        
+        return x, y
+
+    try:
+        center_x, center_y = parse_coordinates(start_box)
+    except Exception as e:
+        raise ValueError(f"Invalid start_box format: {e}")
+    
+    # 원래의 self.controller.tap() 호출
+    self.controller.tap(center_x, center_y)
+    
+    # 현재 동작 기록 (self.current_return은 변경되지 않음)
+    self.current_return = {
+        "operation": "do",
+        "action": 'Tap',
+        "kwargs": {
+            "element": start_box
+        }
+    }
+```
 ### 동작 설명:
 - 함수는 다양한 입력 형식을 모두 정상적으로 처리합니다.
 - 괄호(`()`), 대괄호(`[]`), 공백 등이 포함된 경우에도 문제없이 좌표를 파싱합니다.
