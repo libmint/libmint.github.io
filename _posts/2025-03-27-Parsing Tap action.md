@@ -152,6 +152,74 @@ def tap(self, start_box=None):
         }
     }
 ```
+
+### 개선 예외 없이 동작하게
+```
+import re
+
+def swipe(self, start_box=None, end_box=None):
+    # start_box와 end_box가 반드시 필요함
+    if not (start_box and end_box):
+        raise ValueError("Both start_box and end_box are required for swipe")
+    
+    # 좌표 파싱 함수
+    def parse_coordinates(box):
+        if isinstance(box, str):  # 문자열 처리
+            box = box.strip('()[] ')  # () 또는 [] 제거 및 앞뒤 공백 제거
+            box = box.replace('=', '').replace('"', '').replace("'", '')  # =, 따옴표 제거
+            
+            # 숫자 추출 (괄호 짝이 맞지 않아도 숫자만 추출)
+            numbers = re.findall(r"-?\d+\.?\d*", box)  # 정규식을 사용해 숫자 추출
+            if len(numbers) != 2:
+                raise ValueError(f"Could not extract valid coordinates from '{box}'")
+            
+            x, y = map(float, numbers)  # 추출된 숫자를 float으로 변환
+        elif isinstance(box, list) and len(box) == 2:  # 리스트 처리
+            try:
+                x, y = map(float, box)
+            except ValueError:
+                raise ValueError(f"Invalid list format in '{box}'")
+        else:
+            raise ValueError("Box must be in the format '(x,y)', '[x,y]', [x, y], or x,y with numeric values")
+        
+        return x, y
+
+    try:
+        start_x, start_y = parse_coordinates(start_box)
+        end_x, end_y = parse_coordinates(end_box)
+    except Exception as e:
+        raise ValueError(f"Invalid box format: {e}")
+    
+    # direction 계산
+    if start_x == end_x and start_y < end_y:
+        direction = "down"
+    elif start_x == end_x and start_y > end_y:
+        direction = "up"
+    elif start_y == end_y and start_x < end_x:
+        direction = "right"
+    elif start_y == end_y and start_x > end_x:
+        direction = "left"
+    else:
+        direction = "unknown"  # 대각선 이동 등 처리 불가능한 경우
+    
+    # dist는 기본값 medium으로 설정
+    dist = "medium"
+    
+    # 원래의 self.controller.swipe() 호출
+    self.controller.swipe(start_x, start_y, direction, dist)
+    
+    # 현재 동작 기록 (self.current_return은 변경되지 않음)
+    self.current_return = {
+        "operation": "do",
+        "action": 'Swipe',
+        "kwargs": {
+            "element": None,
+            "direction": direction,
+            "dist": dist
+        }
+    }
+```
+
 ### 동작 설명:
 - 함수는 다양한 입력 형식을 모두 정상적으로 처리합니다.
 - 괄호(`()`), 대괄호(`[]`), 공백 등이 포함된 경우에도 문제없이 좌표를 파싱합니다.
