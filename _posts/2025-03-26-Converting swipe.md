@@ -72,4 +72,59 @@ swipe(start_box="(50,50)", end_box="(100,50)")
 - 기존의 `self.controller.swipe()` 호출 방식과 동일하게 작동하며, 결과는 `self.current_return`에 기록됩니다.
 
 ---
-Perplexity로부터의 답변: pplx.ai/share
+
+
+### 개선
+```
+def swipe(self, start_box=None, end_box=None):
+    # start_box와 end_box가 반드시 필요함
+    if not (start_box and end_box):
+        raise ValueError("Both start_box and end_box are required for swipe")
+    
+    # start_box와 end_box 형식 확인 및 좌표 변환
+    def parse_coordinates(box):
+        if isinstance(box, str):  # 문자열 처리
+            box = box.strip('()[]')  # () 또는 [] 제거
+            x, y = map(int, box.split(','))
+        elif isinstance(box, list) and len(box) == 2:  # 리스트 처리
+            x, y = map(int, box)
+        else:
+            raise ValueError("Box must be in the format '(x,y)', '[x,y]', or [x, y] with integer values")
+        return x, y
+
+    try:
+        start_x, start_y = parse_coordinates(start_box)
+        end_x, end_y = parse_coordinates(end_box)
+    except Exception as e:
+        raise ValueError(f"Invalid box format: {e}")
+    
+    # direction 계산
+    if start_x == end_x and start_y < end_y:
+        direction = "down"
+    elif start_x == end_x and start_y > end_y:
+        direction = "up"
+    elif start_y == end_y and start_x < end_x:
+        direction = "right"
+    elif start_y == end_y and start_x > end_x:
+        direction = "left"
+    else:
+        raise ValueError("Invalid swipe direction: swipe must be strictly horizontal or vertical")
+    
+    # dist는 기본값 medium으로 설정
+    dist = "medium"
+    
+    # 원래의 self.controller.swipe() 호출
+    self.controller.swipe(start_x, start_y, direction, dist)
+    
+    # 현재 동작 기록 (self.current_return은 변경되지 않음)
+    self.current_return = {
+        "operation": "do",
+        "action": 'Swipe',
+        "kwargs": {
+            "element": None,
+            "direction": direction,
+            "dist": dist
+        }
+    }
+    time.sleep(1)
+```
