@@ -168,7 +168,180 @@ if __name__ == "__main__":
 
     run_all_tasks(image_path, before_after_images=before_after, qa_question=qa_text, output_path=output_file)
 ```
+Improve request
+```
+import os
+import json
+import base64
+import requests
+from datetime import datetime
+from abc import ABC, abstractmethod
+from dotenv import load_dotenv
 
+# .env 로드
+load_dotenv()
+
+API_KEY = os.getenv("API_KEY")
+API_ENDPOINT = os.getenv("API_ENDPOINT")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o")  # 기본값
+
+# base64 이미지 인코딩
+def encode_image(image_path):
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+# 공통 태스크 베이스 클래스
+class BaseGUITask(ABC):
+    def __init__(self, image_path):
+        self.image_path = image_path
+        self.image_data = encode_image(image_path)
+
+    @abstractmethod
+    def task_prompt(self):
+        pass
+
+    def run(self):
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        messages = [
+            {"role": "system", "content": self.task_prompt()["system"]},
+            {"role": "user", "content": [
+                {"type": "text", "text": self.task_prompt()["user"]},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{self.image_data}"}}
+            ]}
+        ]
+
+        body = {
+            "model": MODEL_NAME,
+            "messages": messages,
+            "temperature": 0.3
+        }
+
+        response = requests.post(API_ENDPOINT, headers=headers, json=body)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+
+# 개별 태스크 클래스
+class ElementDescriptionTask(BaseGUITask):
+    def task_prompt(self):
+        return {
+            "system": "You are an assistant that extracts and describes GUI elements from screenshots.",
+            "user": "Identify all visible UI elements. For each, provide:\n1. Type\n2. Visual appearance\n3. Function\n4. Position"
+        }
+
+class DenseCaptioningTask(BaseGUITask):
+    def task_prompt(self):
+        return {
+            "system": "You are a captioning assistant for GUI layouts.",
+            "user": "Generate a detailed description summarizing all components and layout structure of the UI."
+        }
+
+class StateTransitionCaptioningTask:
+    def __init__(self, before_image, after_image):
+        self.before_image = encode_image(before_image)
+        self.after_image = encode_image(after_image)
+
+    def run(self):
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        messages = [
+            {"role": "system", "content": "You are a GUI transition analyzer."},
+            {"role": "user", "content": [
+                {"type": "text", "text": "Compare these two GUI screenshots and describe what changed (e.g., button pressed, content loaded)."},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{self.before_image}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{self.after_image}"}}
+            ]}
+        ]
+
+        body = {
+            "model": MODEL_NAME,
+            "messages": messages,
+            "temperature": 0.3
+        }
+
+        response = requests.post(API_ENDPOINT, headers=headers, json=body)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+
+class QATask(BaseGUITask):
+    def __init__(self, image_path, question):
+        super().__init__(image_path)
+        self.question = question
+
+    def task_prompt(self):
+        return {
+            "system": "You are a GUI question-answering assistant.",
+            "user": f"Answer this question about the GUI: {self.question}"
+        }
+
+class SetOfMarkTask(BaseGUITask):
+    def task_prompt(self):
+        return {
+            "system": "You are a GUI element identifier using visual markers.",
+            "user": "Describe all elements marked with colored shapes or highlights in this screenshot. Indicate their function and location."
+        }
+
+# 태스크 전체 실행 + 결과 저장
+def run_all_tasks(
+    image_path,
+    before_after_images=None,
+    qa_question="What is the purpose of this screen?",
+    output_path="gui_analysis.json"
+):
+    print("Running Element Description...")
+    task1 = ElementDescriptionTask(image_path)
+    print("Running Dense Captioning...")
+    task2 = DenseCaptioningTask(image_path)
+    print("Running QA Task...")
+    task4 = QATask(image_path, qa_question)
+    print("Running Set of Mark Task...")
+    task5 = SetOfMarkTask(image_path)
+
+    results = {
+        "element_description": task1.run(),
+        "dense_captioning": task2.run(),
+        "qa": task4.run(),
+        "set_of_mark": task5.run()
+    }
+
+    if before_after_images and len(before_after_images) == 2:
+        print("Running State Transition Captioning...")
+        task3 = StateTransitionCaptioningTask(*before_after_images)
+        results["state_transition_captioning"] = task3.run()
+        before_path, after_path = before_after_images
+    else:
+        results["state_transition_captioning"] = "Not provided"
+        before_path, after_path = None, None
+
+    metadata = {
+        "screenshot_path": image_path,
+        "before_image": before_path,
+        "after_image": after_path,
+        "question": qa_question,
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump({"metadata": metadata, "results": results}, f, indent=2, ensure_ascii=False)
+
+    print(f"\n[완료] '{output_path}'에 결과 저장됨.")
+    return os.path.abspath(output_path)
+
+# 실행 예시
+if __name__ == "__main__":
+    image_path = "gui_images/screenshot.png"
+    before_after = ("gui_images/before.png", "gui_images/after.png")
+    qa_text = "What does the top-right button do?"
+    output_file = "gui_analysis.json"
+
+    run_all_tasks(image_path, before_after_images=before_after, qa_question=qa_text, output_path=output_file)
+```
 ---
 
 ✅ 실행 전 체크리스트
