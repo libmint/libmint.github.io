@@ -4,7 +4,7 @@
 ---
 
 ✅ 최종 통합 코드: main.py
-
+```
 import os
 import json
 import base64
@@ -167,7 +167,7 @@ if __name__ == "__main__":
     output_file = "gui_analysis.json"
 
     run_all_tasks(image_path, before_after_images=before_after, qa_question=qa_text, output_path=output_file)
-
+```
 
 ---
 
