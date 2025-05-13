@@ -342,6 +342,62 @@ if __name__ == "__main__":
 
     run_all_tasks(image_path, before_after_images=before_after, qa_question=qa_text, output_path=output_file)
 ```
+
+main args
+```
+import argparse
+# ... (생략된 import는 기존과 동일)
+
+def run_task(task_name, image_path, before_after_images=None, qa_question="What is the purpose of this screen?"):
+    task_name = task_name.lower()
+    if task_name == "element_description":
+        result = ElementDescriptionTask(image_path).run()
+    elif task_name == "dense_captioning":
+        result = DenseCaptioningTask(image_path).run()
+    elif task_name == "state_transition_captioning":
+        if not before_after_images or len(before_after_images) != 2:
+            raise ValueError("State transition task requires --before and --after images.")
+        result = StateTransitionCaptioningTask(*before_after_images).run()
+    elif task_name == "qa":
+        result = QATask(image_path, qa_question).run()
+    elif task_name == "set_of_mark":
+        result = SetOfMarkTask(image_path).run()
+    else:
+        raise ValueError(f"Unknown task: {task_name}")
+    print(f"\n[{task_name}] 결과:\n{result}")
+    return result
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run GUI analysis tasks using a local LLM endpoint.")
+    parser.add_argument("--task", type=str, required=True, help="Task to run: element_description | dense_captioning | state_transition_captioning | qa | set_of_mark")
+    parser.add_argument("--image", type=str, required=True, help="Path to main screenshot image")
+    parser.add_argument("--before", type=str, help="Before screenshot (for state transition)")
+    parser.add_argument("--after", type=str, help="After screenshot (for state transition)")
+    parser.add_argument("--question", type=str, default="What is the purpose of this screen?", help="Question to use for QA task")
+    parser.add_argument("--output", type=str, default="gui_task_result.json", help="Output JSON file path")
+
+    args = parser.parse_args()
+
+    # 태스크 실행
+    before_after = (args.before, args.after) if args.before and args.after else None
+    task_result = run_task(args.task, args.image, before_after_images=before_after, qa_question=args.question)
+
+    # 결과 JSON 저장
+    result_json = {
+        "task": args.task,
+        "input_image": args.image,
+        "before_image": args.before,
+        "after_image": args.after,
+        "question": args.question,
+        "created_at": datetime.utcnow().isoformat(),
+        "result": task_result
+    }
+
+    with open(args.output, "w", encoding="utf-8") as f:
+        json.dump(result_json, f, indent=2, ensure_ascii=False)
+
+    print(f"\n[완료] 결과가 '{args.output}'에 저장되었습니다.")
+```
 ---
 
 ✅ 실행 전 체크리스트
