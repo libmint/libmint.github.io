@@ -70,6 +70,62 @@ UI-TARS에서 사용하는 데이터 포맷은 **스크린샷 기반의 시각-�
 
 이 포맷은 UI-TARS가 데스크톱, 모바일, 웹 등 다양한 환경에서 perception, grounding, action, reasoning까지 통합적으로 학습하고 평가할 수 있도록 설계되었습니다. 실제 데이터셋 구축 시, 스크린샷과 함께 각 요소의 위치/속성/텍스트/계층 정보 및 액션 로그를 구조화하여 저장하는 것이 권장됩니다[2][5].
 
+OS-Atlas의 모바일용 데이터 포맷은 **JSON 형식**으로, 각 샘플은 GUI 스크린샷과 해당 화면에서 특정 UI 요소를 참조하는 명령 및 그 요소의 위치(바운딩 박스)를 포함합니다. 데이터는 모바일, 데스크톱, 웹 세 가지 도메인으로 구분되며, 모바일 데이터는 `mobile_domain` 디렉터리 하위에 여러 서브셋(AMEX, UIBert, Widget Captioning, RICOSCA, Android_world_data 등)으로 제공됩니다[1].
+
+### 주요 필드 설명
+
+- **img_filename**: 스크린샷 이미지 파일명
+- **instruction**: 사람이 작성한 명령 또는 참조 표현(ally tree, HTML 등에서 추출)
+- **bbox**: 명령이 참조하는 타겟 요소의 바운딩 박스  
+  - `[left, top, right, bottom]` 순서  
+  - 각 값은 0~1 사이의 실수로, 이미지의 너비/높이에 대한 상대적 비율
+- **data_type** (선택): 요소의 타입(예: button, text 등), 추출 가능한 경우에만 포함
+
+### 예시
+
+```json
+{
+  "img_filename": "amex_000123.png",
+  "instruction": "Wi-Fi를 켜는 토글을 찾아 클릭하세요.",
+  "bbox": [0.12, 0.32, 0.25, 0.38],
+  "data_type": "toggle"
+}
+```
+
+- **img_filename**은 실제 이미지 파일(압축파일 내 포함)과 연결됩니다.
+- **bbox**의 각 값은 이미지 크기에 곱해서 실제 픽셀 좌표로 변환할 수 있습니다.
+- **data_type**은 있을 때만 포함됩니다.
+
+### 대화형(Conversations) 포맷 예시
+
+OS-Atlas는 대화형 어노테이션도 지원합니다. 예시:
+```json
+{
+  "conversations": [
+    {
+      "from": "human",
+      "value": "\n아래 UI 요소를 찾아주세요.\nWi-Fi\nBluetooth"
+    },
+    {
+      "from": "gpt",
+      "value": "Wi-Fi[[120,320,250,380]]\nBluetooth[[120,400,250,460]]"
+    }
+  ]
+}
+```
+- 이 경우 바운딩 박스는 0~1 정규화 대신 0~1000 스케일로 변환해서 쓰기도 합니다.
+
+### 요약
+
+- **저장 형식**: JSON  
+- **필수 필드**: `img_filename`, `instruction`, `bbox`  
+- **선택 필드**: `data_type`  
+- **좌표**: `[left, top, right, bottom]`, 0~1 사이 실수  
+- **이미지**: 별도 압축파일(zip)로 제공, 파일명으로 연결  
+- **대화형 포맷**: `conversations` 필드 사용 가능
+
+이 포맷은 OS-Atlas Hugging Face 데이터셋의 [mobile_domain] 디렉터리 내 여러 JSON 파일(예: `amex_raw.json`, `uibert_raw.json` 등)에서 실제로 확인할 수 있습니다[1].
+
 
 데이터 포맷(스크린샷, 자연어 명령, 바운딩 박스, 요소 속성 등)은 실제로 최신 GUI grounding 및 에이전트 연구 데이터셋에서 사용되는 방식이며, 아래와 같은 공개 자료에서 확인할 수 있습니다.
 
