@@ -1,5 +1,6 @@
 ```
-# This is the complete and updated version of the main.py script
+# Final version of main.py with enhanced element extraction and full integration
+
 import os
 import json
 import base64
@@ -21,7 +22,7 @@ def encode_image(image_path):
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-# Send a prompt and image(s) to the model
+# Send request to model
 def request_model(system_prompt, user_prompt, image_data_list):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -40,56 +41,47 @@ def request_model(system_prompt, user_prompt, image_data_list):
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-# Parse element description output into structured JSON
+# Parse element description output
 def parse_element_description(text):
     elements = []
     current = {}
     lines = text.strip().split("\n")
-
     for line in lines:
         line = line.strip()
         if re.match(r"^\d+[\).]", line):
             if current:
                 elements.append(current)
                 current = {}
-
         if "type" not in current:
             m = re.search(r"(button|checkbox|textfield|link|image|icon|label)", line, re.I)
             if m:
                 current["type"] = m.group(1).lower()
-
         if "text" not in current:
             m = re.search(r"label(ed)? as ['\"]?([^'\"]+)['\"]?", line, re.I)
             if m:
                 current["text"] = m.group(2)
-
         if "function" not in current:
             m = re.search(r"(submits|toggles|navigates|opens|closes|accepts|sends)[^\.\n]*", line, re.I)
             if m:
                 current["function"] = m.group(0).strip().lower()
-
         if "position" not in current:
             m = re.search(r"(top|bottom|center|left|right)[-\s]?(left|right|center)?", line, re.I)
             if m:
                 pos = " ".join(filter(None, m.groups())).lower()
                 current["position"] = pos
-
         if "visual" not in current:
             m = re.search(r"(blue|gray|white|green|red|orange|yellow|black)[^\n\.]*", line, re.I)
             if m:
                 current["visual"] = m.group(0).strip().lower()
-
         if "box" not in current:
             m = re.search(r"\[?\(?\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\]?\)?", line)
             if m:
                 current["box"] = list(map(int, m.groups()))
-
     if current:
         elements.append(current)
-
     return elements
 
-# Abstract base class for perception tasks
+# Base class for tasks
 class BaseGUITask(ABC):
     def __init__(self, image_path):
         self.image_path = image_path
@@ -97,10 +89,8 @@ class BaseGUITask(ABC):
 
     @abstractmethod
     def task_name(self): pass
-
     @abstractmethod
     def system_prompt(self): pass
-
     @abstractmethod
     def user_prompt(self): pass
 
@@ -111,26 +101,44 @@ class BaseGUITask(ABC):
 # Task implementations
 class ElementDescriptionTask(BaseGUITask):
     def task_name(self): return "element_description"
-    def system_prompt(self): return "You are an assistant that extracts and describes GUI elements from screenshots."
-    def user_prompt(self): return "Describe each UI element in the screenshot with: type, visual description, function, and relative position."
+    def system_prompt(self):
+        return "You are an expert GUI element extraction agent for screen readers."
+    def user_prompt(self):
+        return (
+            "Analyze the entire UI screenshot and extract a complete list of all visible UI elements.\n"
+            "For each element, provide the following fields:\n"
+            "- 'type': type of the UI element (e.g., button, checkbox, label, input field)\n"
+            "- 'text': the visible label or content\n"
+            "- 'function': what it does or triggers\n"
+            "- 'visual': color, border, shape, icon, etc.\n"
+            "- 'position': top/bottom/left/right/center etc.\n"
+            "- 'box': the bounding box in [x1, y1, x2, y2] format\n\n"
+            "Return your output as a bullet list, one line per element."
+        )
 
 class DenseCaptioningTask(BaseGUITask):
     def task_name(self): return "dense_captioning"
-    def system_prompt(self): return "You are a captioning assistant for GUI layouts."
-    def user_prompt(self): return "Generate a dense caption that summarizes the full layout and all visible elements in the UI screenshot."
+    def system_prompt(self):
+        return "You are a captioning assistant for GUI layouts."
+    def user_prompt(self):
+        return "Generate a dense caption that summarizes the full layout and all visible elements in the UI screenshot."
 
 class QATask(BaseGUITask):
     def __init__(self, image_path, question):
         super().__init__(image_path)
         self.question = question
     def task_name(self): return "qa"
-    def system_prompt(self): return "You are a GUI question-answering assistant."
-    def user_prompt(self): return f"Answer the following question about the UI: {self.question}"
+    def system_prompt(self):
+        return "You are a GUI question-answering assistant."
+    def user_prompt(self):
+        return f"Answer the following question about the UI: {self.question}"
 
 class SetOfMarkTask(BaseGUITask):
     def task_name(self): return "set_of_mark_prompting"
-    def system_prompt(self): return "You are a GUI element identifier using visual markers."
-    def user_prompt(self): return "Identify and describe the elements visually marked in this screenshot. Include type, function, and position."
+    def system_prompt(self):
+        return "You are a GUI element identifier using visual markers."
+    def user_prompt(self):
+        return "Identify and describe the elements visually marked in this screenshot. Include type, function, and position."
 
 class StateTransitionCaptioningTask:
     def __init__(self, before_image, after_image):
@@ -148,30 +156,7 @@ class StateTransitionCaptioningTask:
             image_data
         )
 
-# Build structured output JSON
-def build_gui_json(screenshot_path, element_desc, dense_caption, qa_question, qa_answer,
-                   set_of_mark, state_trans_caption=None, before_image=None, after_image=None, metadata=None):
-    return {
-        "screenshot": screenshot_path,
-        "metadata": metadata or {},
-        "perception_tasks": {
-            "element_description": element_desc,
-            "dense_captioning": dense_caption,
-            "qa": {
-                "question": qa_question,
-                "answer": qa_answer
-            },
-            "set_of_mark_prompting": set_of_mark,
-            "state_transition_captioning": {
-                "before_image": before_image,
-                "after_image": after_image,
-                "caption": state_trans_caption
-            } if state_trans_caption else None
-        },
-        "created_at": datetime.utcnow().isoformat()
-    }
-
-# CLI parser
+# Argument parser
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Run GUI perception tasks and output JSON.")
     parser.add_argument("--image", required=True, help="Main screenshot image path")
@@ -184,7 +169,7 @@ def parse_arguments():
     task_group.add_argument("--all", action="store_true", help="Run all tasks")
     return parser.parse_args()
 
-# Task runner
+# Task executor
 def run_selected_tasks(args):
     output = {
         "screenshot": args.image,
@@ -234,6 +219,5 @@ def run_selected_tasks(args):
 if __name__ == "__main__":
     args = parse_arguments()
     run_selected_tasks(args)
-
 
 ```
