@@ -25,7 +25,128 @@ gui_project/
 ## 🔹 `main.py`
 
 ✅ OCR 기반 localizer 사용 포함, 각 task에 elements 전달
-👉 [이미 이 화면에서 전체 코드 제공됨](https://chat.openai.com/share)
+```
+import argparse
+import os
+import json
+from datetime import datetime
+
+from model_utils import request_model
+from aw_data_converter.data_utils import convert_existing_data_with_prompts, fill_unknown_answers
+from gui_tasks.element_description_task import ElementDescriptionTask
+from gui_tasks.dense_captioning_task import DenseCaptioningTask
+from gui_tasks.qa_task import QATask
+from gui_tasks.set_of_mark_task import SetOfMarkTask
+from gui_tasks.state_transition_captioning_task import StateTransitionCaptioningTask
+
+def run_selected_tasks(args):
+    image_paths = []
+    if args.image_dir:
+        image_paths = [os.path.join(args.image_dir, f)
+                       for f in os.listdir(args.image_dir)
+                       if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+    else:
+        image_paths = [args.image]
+
+    results = []
+    for img in image_paths:
+        print(f"[+] Processing {img}")
+
+        # Step 1: Use Localizer if enabled
+        elements = []
+        marked_image = img
+        if args.use_localizer:
+            from localizer import localize_screen_with_ocr
+            local_output_json = f"localizer_{os.path.basename(img)}.json"
+            localization = localize_screen_with_ocr(img, "som_output", local_output_json)
+            elements = localization["elements"]
+            marked_image = localization["som_screenshot_path"]
+
+        result = {
+            "screenshot": marked_image,
+            "metadata": {},
+            "perception_tasks": {},
+            "created_at": datetime.utcnow().isoformat()
+        }
+
+        # Step 2: Perform Tasks
+        if args.all or args.task == "element":
+            if args.use_localizer and elements:
+                result["perception_tasks"]["element_description"] = elements
+            else:
+                element_raw = ElementDescriptionTask(marked_image).run(request_model)
+                try:
+                    result["perception_tasks"]["element_description"] = json.loads(element_raw)
+                except:
+                    result["perception_tasks"]["element_description"] = {"error": "Invalid JSON"}
+
+        if args.all or args.task == "caption":
+            caption = DenseCaptioningTask(marked_image, elements).run(request_model)
+            result["perception_tasks"]["dense_captioning"] = caption
+
+        if args.all or args.task == "qa":
+            qa = QATask(marked_image, args.question, elements).run(request_model)
+            result["perception_tasks"]["qa"] = {"question": args.question, "answer": qa}
+
+        if args.all or args.task == "mark":
+            marks = SetOfMarkTask(marked_image, elements).run(request_model)
+            result["perception_tasks"]["set_of_mark"] = marks
+
+        if (args.all or args.task == "state") and args.before and args.after:
+            state_caption = StateTransitionCaptioningTask(args.before, args.after).run(request_model)
+            result["perception_tasks"]["state_transition_captioning"] = {
+                "before_image": args.before,
+                "after_image": args.after,
+                "caption": state_caption
+            }
+
+        results.append(result)
+
+    # Save final output
+    with open(args.output, "w", encoding="utf-8") as f:
+        json.dump(results if len(results) > 1 else results[0], f, indent=2, ensure_ascii=False)
+    print(f"[✓] Results saved: {args.output}")
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="mode", required=True)
+
+    # Run
+    run = subparsers.add_parser("run")
+    run.add_argument("--image")
+    run.add_argument("--image_dir")
+    run.add_argument("--before")
+    run.add_argument("--after")
+    run.add_argument("--question", default="What is the main purpose of this screen?")
+    run.add_argument("--output", required=True)
+    run.add_argument("--use_localizer", action="store_true", help="Use OCR-based element localizer")
+    group = run.add_mutually_exclusive_group(required=True)
+    group.add_argument("--task", choices=["element", "caption", "qa", "mark", "state"])
+    group.add_argument("--all", action="store_true")
+
+    # Convert
+    convert = subparsers.add_parser("convert")
+    convert.add_argument("--input", required=True)
+    convert.add_argument("--output", required=True)
+
+    # Fill
+    fill = subparsers.add_parser("fill")
+    fill.add_argument("--input", required=True)
+    fill.add_argument("--image_dir", required=True)
+    fill.add_argument("--output", required=True)
+
+    return parser.parse_args()
+
+if __name__ == "__main__":
+    args = parse_arguments()
+    if args.mode == "run":
+        run_selected_tasks(args)
+    elif args.mode == "convert":
+        convert_existing_data_with_prompts(args.input, args.output)
+    elif args.mode == "fill":
+        fill_unknown_answers(args.input, args.image_dir, args.output)
+
+```
 
 ---
 
