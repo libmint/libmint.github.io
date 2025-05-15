@@ -191,6 +191,40 @@ class StateTransitionCaptioningTask:
         return request_model(messages)
 ```
 
+main
+```
+from localizer import process_directory_recursively
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="mode", required=True)
+
+    run = subparsers.add_parser("run")
+    run.add_argument("--image_dir", required=True)
+    run.add_argument("--before")
+    run.add_argument("--after")
+    run.add_argument("--question", default="이 버튼은 무슨 기능인가요?")
+    run.add_argument("--output", required=True)
+    group = run.add_mutually_exclusive_group(required=True)
+    group.add_argument("--task", choices=["element", "caption", "qa", "mark", "state"])
+    group.add_argument("--all", action="store_true")
+
+    localize = subparsers.add_parser("localize")
+    localize.add_argument("--image_dir", required=True, help="Directory of screenshots (recursive)")
+    localize.add_argument("--output_dir", default="som_output", help="Where to save marked images")
+
+    return parser.parse_args()
+
+...
+
+if __name__ == "__main__":
+    args = parse_arguments()
+    if args.mode == "run":
+        run_selected_tasks(args)
+    elif args.mode == "localize":
+        process_directory_recursively(args.image_dir, args.output_dir)
+
+```
 ---
 
 
