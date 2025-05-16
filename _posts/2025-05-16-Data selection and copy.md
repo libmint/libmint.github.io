@@ -24,50 +24,49 @@ dest_root = input("복사할 목적지 폴더 경로(dest_root)를 입력하세�
 json_path = input("JSON 파일 경로를 입력하세요: ").strip()
 source_dir = input("원본 파일들이 위치한 폴더 경로(source_dir)를 입력하세요: ").strip()
 
-# 확장자 목록 (우선순위대로 시도)
-extensions = ['.png', '.jpg', '.jpeg']
-
 # JSON 읽기
 with open(json_path, 'r', encoding='utf-8') as f:
     data = json.load(f)
 
-# 파일 목록 추출 (중복 제거)
-all_files = set()
+# 파일 prefix 목록 추출 (중복 제거)
+all_prefixes = set()
 for file_list in data.values():
-    all_files.update(file_list)
+    all_prefixes.update(file_list)
 
-# 실패한 파일 저장 리스트
-failed_files = []
+# 실패한 항목 기록용
+not_found_prefixes = []
 
-# 파일 복사 처리
-for file_base in all_files:
-    found = False
+# 복사 처리
+for prefix in all_prefixes:
+    matched_file = None
 
-    for ext in extensions:
-        filename = file_base + ext
-        src_file_path = os.path.join(source_dir, filename)
-        if os.path.isfile(src_file_path):
-            dest_folder = os.path.join(dest_root, file_base)
-            os.makedirs(dest_folder, exist_ok=True)
-
-            dest_file_path = os.path.join(dest_folder, filename)
-            shutil.copy(src_file_path, dest_file_path)
-
-            print(f"✅ 복사 완료: {src_file_path} -> {dest_file_path}")
-            found = True
+    # 파일 목록 중 prefix로 시작하는 첫 번째 파일 찾기
+    for filename in os.listdir(source_dir):
+        if filename.startswith(prefix) and os.path.isfile(os.path.join(source_dir, filename)):
+            matched_file = filename
             break
 
-    if not found:
-        print(f"⚠️  복사 실패 (파일 없음): {file_base} + (.png/.jpg/.jpeg)")
-        failed_files.append(file_base)
+    if matched_file:
+        dest_folder = os.path.join(dest_root, prefix)
+        os.makedirs(dest_folder, exist_ok=True)
 
-# 실패 파일 목록 출력
-if failed_files:
-    print("\n다음 항목은 확장자 포함된 파일을 찾지 못했습니다:")
-    for f in failed_files:
-        print(f" - {f}")
+        src_path = os.path.join(source_dir, matched_file)
+        dest_path = os.path.join(dest_folder, matched_file)
+        shutil.copy(src_path, dest_path)
+
+        print(f"✅ 복사 완료: {src_path} -> {dest_path}")
+    else:
+        print(f"⚠️  복사 실패: '{prefix}'로 시작하는 파일을 찾을 수 없음")
+        not_found_prefixes.append(prefix)
+
+# 요약 출력
+if not_found_prefixes:
+    print("\n다음 prefix는 해당하는 파일이 source_dir에 존재하지 않습니다:")
+    for p in not_found_prefixes:
+        print(f" - {p}")
 else:
-    print("\n모든 파일 복사 성공 ✅")
+    print("\n모든 prefix에 해당하는 파일이 성공적으로 복사되었습니다 ✅")
+
 
 ```
 
