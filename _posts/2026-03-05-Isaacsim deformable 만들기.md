@@ -99,3 +99,88 @@ print("Isaac Sim 5.1.0 규격 Deformable 객체 생성 완료.")
 이 과정을 거치면 5.1.0 환경에서 외부 UI에 의존하지 않고 완벽하게 Deformable 객체를 구동할 수 있습니다.
 
 떨어지는 큐브의 물성치(예: 고무처럼 튕기게 할지, 젤리처럼 푹 퍼지게 할지)를 결정하는 Young's Modulus(영률) 값을 스크립트로 조절하는 방법도 이어서 알려드릴까요?
+
+
+45라인의 `invalid prim` 에러는 스크립트가 `/physicsScene` 경로에서 Physics Scene 객체를 찾으려 했으나, **해당 경로에 객체가 존재하지 않아서(Invalid) 발생하는 에러**입니다.
+
+GUI에서 Ground Plane을 생성할 때 설정에 따라 Physics Scene이 생성되지 않았거나, 다른 경로(예: `/World/physicsScene`)에 생성되었기 때문입니다.
+
+이 문제를 원천적으로 차단하려면, GUI 작업에 의존하지 않고 **스크립트가 직접 Physics Scene의 존재 여부를 파악하고 없으면 자동으로 생성**하도록 코드를 수정해야 합니다.
+
+에러가 발생한 5번 항목을 아래와 같이 보완한 **수정된 전체 스크립트**를 제공합니다. 기존 코드를 지우고 아래 코드로 다시 실행해 주십시오.
+
+---
+
+### 수정된 전체 스크립트 (Physics Scene 자동 생성 포함)
+
+```python
+import omni.usd
+import omni.kit.commands
+import carb
+from pxr import Sdf, UsdPhysics, PhysxSchema
+
+# 1. 5.1.0 Deformable Beta 시스템 강제 활성화
+settings = carb.settings.get_settings()
+settings.set("/physics/deformableBodyEnableBeta", True)
+settings.set("/physics/deformableSurfaceEnableBeta", True)
+
+# 2. Stage 컨텍스트 확보
+stage = omni.usd.get_context().get_stage()
+
+# 3. 큐브 메쉬 생성 및 삼각형화
+cube_path = "/World/SoftCube"
+
+if stage.GetPrimAtPath(cube_path):
+    omni.kit.commands.execute("DeletePrims", paths=[cube_path])
+
+omni.kit.commands.execute("CreateMeshPrimWithDefaultXform", prim_type="Cube")
+omni.kit.commands.execute("MovePrim", path_from="/World/Cube", path_to=cube_path)
+omni.kit.commands.execute("TriangulateMesh", mesh_path=cube_path)
+
+# 4. 5.1.0 Codeless USD Schema 직접 주입
+prim = stage.GetPrimAtPath(cube_path)
+prim.SetInstanceable(False)
+
+codeless_schemas = [
+    "OmniPhysicsBodyAPI",
+    "OmniPhysicsDeformableBodyAPI",
+    "PhysxBaseDeformableBodyAPI",
+    "OmniPhysicsVolumeDeformableSimAPI",
+    "PhysxCollisionAPI"
+]
+
+for schema in codeless_schemas:
+    prim.AddAppliedSchema(schema)
+
+UsdPhysics.CollisionAPI.Apply(prim)
+prim.CreateAttribute("omniphysics:deformableBodyEnabled", Sdf.ValueTypeNames.Bool).Set(True)
+
+# 5. Physics Scene 자동 확인 및 생성 (에러 수정된 부분)
+scene_path = "/physicsScene"
+physx_scene_prim = stage.GetPrimAtPath(scene_path)
+
+# 해당 경로에 Physics Scene이 유효하지 않으면(없으면) 새로 정의합니다.
+if not physx_scene_prim.IsValid():
+    UsdPhysics.Scene.Define(stage, scene_path)
+    physx_scene_prim = stage.GetPrimAtPath(scene_path)
+
+PhysxSchema.PhysxSceneAPI.Apply(physx_scene_prim)
+
+# GPU Dynamics 강제 활성화
+physx_scene_prim.CreateAttribute("physxScene:enableGPUDynamics", Sdf.ValueTypeNames.Bool).Set(True)
+physx_scene_prim.CreateAttribute("physxScene:broadphaseType", Sdf.ValueTypeNames.Token).Set("GPU")
+
+# 6. 관찰을 위해 큐브를 바닥 위로 띄우기
+omni.kit.commands.execute("TransformPrimSRTCommand",
+    path=cube_path,
+    old_translation=(0.0, 0.0, 0.0),
+    new_translation=(0.0, 0.0, 2.0)
+)
+
+print("Isaac Sim 5.1.0 규격 Deformable 객체 및 Physics Scene 생성 완료.")
+
+```
+
+이제 빈 스테이지(`File > New`)에서 바닥(`Create > Physics > Ground Plane`)만 만든 직후 이 스크립트를 실행하면 경로 에러 없이 즉시 구동됩니다.
+
+스크립트 실행 후 Play를 눌러 큐브가 정상적으로 떨어지고 찌그러지는지 확인해 보시겠습니까?
