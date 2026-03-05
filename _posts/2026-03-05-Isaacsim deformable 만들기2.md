@@ -75,4 +75,67 @@ print("점검 완료. Play를 눌러 확인하십시오.")
 
 실행 후 **Play(▶)**를 누르면 Z축 3.0 높이에서 생성된 큐브가 바닥으로 떨어지며 형태가 변형됩니다.
 
-결과가 확인되시면, 이 구성을 Isaac Lab의 강화학습 환경(`DeformableObjectCfg`)으로 이관하는 코드를 작성해 드릴까요?
+
+방금 성공적으로 동작한 Isaac Sim 5.1.0 기반의 Deformable 객체 생성 코드를 5가지 핵심 파트로 나누어 그 역할과 원리를 설명해 드립니다.
+
+이전의 실패 사례들을 극복하기 위해 어떤 기술적 장치들이 들어갔는지 파악하실 수 있습니다.
+
+### 1. 코어 엔진 활성화 (Beta 설정)
+
+```python
+carb.settings.get_settings().set("/physics/deformableBodyEnableBeta", True)
+
+```
+
+Isaac Sim 5.1.0에서 Deformable 기능은 내부적으로 'Beta' 플래그 뒤에 잠겨 있습니다. 이 코드는 물리 엔진(PhysX)에게 "변형체 연산을 무시하지 말고 실행하라"고 지시하는 메인 스위치 역할을 합니다.
+
+### 2. Physics Scene 및 TGS 솔버 강제 세팅
+
+```python
+physx_scene.CreateEnableGPUDynamicsAttr(True)
+physx_scene.CreateBroadphaseTypeAttr("GPU")
+physx_scene.CreateSolverTypeAttr("TGS") 
+
+```
+
+* **GPU 연산:** 변형체 내부에 생성되는 수천 개의 사면체(Tet-mesh) 연산은 CPU로 감당할 수 없으므로 반드시 GPU 다이나믹스를 켜야 합니다.
+* **TGS (Temporal Gauss-Seidel) 솔버:** 일반적인 딱딱한 물체(Rigid Body)는 PGS 솔버를 쓰지만, 변형체는 형태가 찌그러지며 내부 응력이 급변합니다. TGS 솔버를 강제로 지정하지 않으면 객체가 터지거나(Explosion) 연산을 멈춥니다(Freeze).
+
+### 3. 메쉬 생성 및 위상 변환 (핵심)
+
+```python
+omni.kit.commands.execute("CreateMeshPrimWithDefaultXform", prim_type="Cube")
+omni.kit.commands.execute("TriangulateMesh", mesh_path=cube_path)
+
+```
+
+* 일반적인 큐브는 표면이 사각형(Quad)으로 이루어져 있습니다.
+* PhysX FEM 엔진은 표면 다각형을 기반으로 내부를 꽉 채우는 볼륨(Tet-mesh)을 생성(Cooking)하는데, 이 과정은 **반드시 삼각형(Triangle) 메쉬**에서만 작동합니다. `TriangulateMesh` 명령어가 사각형 표면을 대각선으로 쪼개어 엔진이 인식할 수 있는 상태로 만들어 줍니다.
+
+### 4. 물성치 (Material) 정의
+
+```python
+defUtils.add_deformable_body_material(
+    stage, mat_path, 
+    youngs_modulus=50000.0, poissons_ratio=0.45
+)
+
+```
+
+객체가 물리적으로 어떤 질감을 가질지 결정하는 파라미터입니다.
+
+* **Young's Modulus (영률):** 물체의 강성(Stiffness)입니다. 이 수치가 50,000이면 젤리처럼 말랑하고, 5,000,000 수준으로 올라가면 자동차 타이어처럼 단단해집니다.
+* **Poisson's Ratio (포아송 비):** 물체를 위에서 눌렀을 때 부피를 유지하기 위해 옆으로 얼마나 튀어나올지(Bulging)를 결정합니다. 고무나 젤리 같은 비압축성 물질은 보통 0.45~0.49의 값을 가집니다.
+
+### 5. Deformable API 및 스키마 주입
+
+```python
+defUtils.add_physx_deformable_body(stage, cube_path)
+
+```
+
+앞서 만든 큐브 메쉬와 물성치를 하나로 묶어 PhysX 엔진에 최종 등록하는 코어 유틸리티입니다. 이 함수가 실행되는 순간, 내부적으로 표면 메쉬를 기반으로 사면체 메쉬를 굽는(Cooking) 작업이 백그라운드에서 완료됩니다.
+
+---
+
+코드가 구성된 원리를 파악하셨다면, 현재 코드에서 `youngs_modulus` 값을 500,000 정도로 10배 높여서 단단한 고무 큐브로 변경해 보거나, 허공에 띄운 높이를 조절하는 등 변수 값을 직접 수정하여 테스트를 한 번 진행해 보시겠습니까?
