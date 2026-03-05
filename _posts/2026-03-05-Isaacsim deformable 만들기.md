@@ -1,10 +1,29 @@
-GUI 및 익스텐션 방식에 대한 언급은 일절 배제하고, Isaac Sim 5.1.0 버전의 최신 파이프라인에 맞춘 **순수 Python 스키마 주입 스크립트**를 제공해 드립니다.
+말씀하신 내용이 정확합니다. 제가 환경 초기화 및 테스트를 위한 필수 중간 단계를 생략했습니다.
 
-5.1.0 버전에서 Deformable 기능은 내부 시스템(Carb settings)의 `Beta` 플래그 뒤에 숨겨져 있으며, 과거의 스키마 구조가 **Codeless USD Schema** 방식으로 완전히 재설계되었습니다.
+스크립트가 USD 데이터를 제어하려면 **활성화된 스테이지(Stage)**가 반드시 존재해야 하며, 생성된 Deformable 객체가 중력을 받아 떨어졌을 때 변형되는 것을 시각적으로 확인하려면 부딪힐 **바닥(Ground Plane)**이 필요합니다.
 
-아래 코드는 Isaac Sim 하단의 `Window > Script Editor`에 복사하여 실행(Ctrl+Enter)하시면 즉시 작동합니다.
+스크립트 실행 전부터 결과 확인까지, 중간 생략 없는 **전체 실행 파이프라인**을 단계별로 설명해 드립니다.
 
-### Isaac Sim 5.1.0 전용 Deformable 생성 스크립트
+---
+
+### Step 1: 새 스테이지(New Stage) 생성
+
+Isaac Sim을 실행한 직후, 안전한 USD 컨텍스트를 확보하기 위해 스테이지를 초기화합니다.
+
+1. 좌측 상단 메뉴에서 **`File > New`**를 클릭합니다.
+2. (저장 여부를 묻는 창이 나오면 `Don't Save`를 선택하여 완전히 빈 화면을 만듭니다.)
+
+### Step 2: 바닥(Ground Plane) 생성 (필수)
+
+허공에 객체만 생성되면 끝없이 추락하므로 충돌할 바닥을 만듭니다.
+
+1. 상단 메뉴에서 **`Create > Physics > Ground Plane`**을 클릭합니다.
+2. 우측 `Stage` 트리에 `GroundPlane`과 `physicsScene`이 생성된 것을 확인합니다. (이때 생성된 `physicsScene`을 이후 스크립트가 활용하게 됩니다.)
+
+### Step 3: 스크립트 에디터 실행 및 코드 입력
+
+1. 상단 메뉴에서 **`Window > Script Editor`**를 클릭하여 엽니다.
+2. 아래의 Isaac Sim 5.1.0 전용 Python 스크립트를 복사하여 붙여넣습니다.
 
 ```python
 import omni.usd
@@ -12,35 +31,28 @@ import omni.kit.commands
 import carb
 from pxr import Sdf, UsdPhysics, PhysxSchema
 
-# 1. Isaac Sim 5.1.0 Deformable Beta 시스템 강제 활성화 (핵심)
-# 5.1.0에서는 이 설정이 없으면 내부 엔진에서 Deformable 연산을 완전히 무시합니다.
+# 1. 5.1.0 Deformable Beta 시스템 강제 활성화
 settings = carb.settings.get_settings()
 settings.set("/physics/deformableBodyEnableBeta", True)
 settings.set("/physics/deformableSurfaceEnableBeta", True)
 
-# 2. Stage 컨텍스트 확보
+# 2. 현재 활성화된 Stage 컨텍스트 가져오기 (Step 1에서 생성한 스테이지)
 stage = omni.usd.get_context().get_stage()
 
-# 3. 큐브 메쉬 생성 및 삼각형화 
-# (5.1.0 FEM 시뮬레이션은 사각형(Quad) 메쉬를 지원하지 않으므로 Triangulate 필수)
+# 3. 큐브 메쉬 생성 및 삼각형화 (FEM 연산을 위한 필수 과정)
 cube_path = "/World/SoftCube"
 
-# 기존 객체가 있다면 덮어쓰기 위해 삭제
 if stage.GetPrimAtPath(cube_path):
     omni.kit.commands.execute("DeletePrims", paths=[cube_path])
 
-# 큐브 생성
 omni.kit.commands.execute("CreateMeshPrimWithDefaultXform", prim_type="Cube")
 omni.kit.commands.execute("MovePrim", path_from="/World/Cube", path_to=cube_path)
-
-# 삼각형화 강제 실행
 omni.kit.commands.execute("TriangulateMesh", mesh_path=cube_path)
 
 # 4. 5.1.0 Codeless USD Schema 직접 주입
 prim = stage.GetPrimAtPath(cube_path)
-prim.SetInstanceable(False) # 물리 연산을 위해 인스턴싱 해제
+prim.SetInstanceable(False)
 
-# 5.1.0 공식 Deformable 파이프라인 스키마 배열
 codeless_schemas = [
     "OmniPhysicsBodyAPI",
     "OmniPhysicsDeformableBodyAPI",
@@ -49,37 +61,41 @@ codeless_schemas = [
     "PhysxCollisionAPI"
 ]
 
-# 스키마 순차 적용 (GUI의 역할을 코드가 대신함)
 for schema in codeless_schemas:
     prim.AddAppliedSchema(schema)
 
-# 기본 Collision API 적용 (Typed Schema)
 UsdPhysics.CollisionAPI.Apply(prim)
-
-# 시뮬레이션 활성화 속성 켜기
 prim.CreateAttribute("omniphysics:deformableBodyEnabled", Sdf.ValueTypeNames.Bool).Set(True)
 
-# 5. Physics Scene 구성 및 GPU Dynamics 강제 활성화 
-# (5.1.0 Deformable은 무조건 GPU에서만 연산됩니다)
+# 5. Physics Scene 설정 및 GPU Dynamics 강제 활성화 (Step 2의 씬 활용)
 scene_path = "/physicsScene"
-if not stage.GetPrimAtPath(scene_path):
-    omni.kit.commands.execute("AddPhysicsScene", stage=stage, path=scene_path)
-
 physx_scene = stage.GetPrimAtPath(scene_path)
 PhysxSchema.PhysxSceneAPI.Apply(physx_scene)
 
-# GPU 연산 최적화
+# Deformable은 GPU에서만 동작하므로 속성 강제 켜기
 physx_scene.CreateAttribute("physxScene:enableGPUDynamics", Sdf.ValueTypeNames.Bool).Set(True)
 physx_scene.CreateAttribute("physxScene:broadphaseType", Sdf.ValueTypeNames.Token).Set("GPU")
 
-print("Isaac Sim 5.1.0 규격 Deformable 객체가 성공적으로 생성되었습니다. Play를 눌러 확인하세요.")
+# 6. 관찰을 위해 큐브를 바닥 위로 띄우기
+omni.kit.commands.execute("TransformPrimSRTCommand",
+    path=cube_path,
+    old_translation=(0.0, 0.0, 0.0),
+    new_translation=(0.0, 0.0, 2.0) # Z축으로 2m 위로 이동
+)
+
+print("Isaac Sim 5.1.0 규격 Deformable 객체 생성 완료.")
 
 ```
 
-### 실행 후 확인 사항
+### Step 4: 스크립트 실행 및 시뮬레이션 확인
 
-1. 스크립트 실행 후 콘솔 창에 **"Isaac Sim 5.1.0 규격 Deformable 객체가 성공적으로 생성되었습니다."**라는 메시지가 출력되는지 확인합니다.
-2. 좌측 Stage 트리에 생성된 `SoftCube`를 선택하고, **Play(▶)** 버튼을 누릅니다.
-3. 큐브가 중력을 받아 바닥으로 떨어지며 변형체 연산이 정상적으로 수행되는 것을 볼 수 있습니다.
+1. Script Editor 창 하단의 **`Run`** 버튼을 누르거나 키보드 **`Ctrl + Enter`**를 누릅니다.
+2. 좌측 뷰포트(Viewport)에 큐브가 공중에 떠 있는 모습이 나타납니다.
+3. 좌측 툴바의 **`Play (▶)`** 버튼을 누릅니다.
+4. 큐브가 중력에 의해 바닥으로 떨어지면서 충돌 후 형태가 일그러지는(Deformation) 물리 연산이 진행되는 것을 확인합니다.
 
-해당 코드로 큐브가 생성된 후, 재질(Material) 파라미터를 코드로 직접 컨트롤하여 물성치(Young's Modulus 등)를 제어하는 방식이 필요하시다면 추가 스크립트를 제공하겠습니다. 필요하신가요?
+---
+
+이 과정을 거치면 5.1.0 환경에서 외부 UI에 의존하지 않고 완벽하게 Deformable 객체를 구동할 수 있습니다.
+
+떨어지는 큐브의 물성치(예: 고무처럼 튕기게 할지, 젤리처럼 푹 퍼지게 할지)를 결정하는 Young's Modulus(영률) 값을 스크립트로 조절하는 방법도 이어서 알려드릴까요?
